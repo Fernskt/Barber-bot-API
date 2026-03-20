@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  durationMinutes Int
+  price           Float
+}
+
+model Appointment {
+  id         String   @id @default(cuid())
+  customerId String
+  serviceId  String
+  startsAt   DateTime
+  status     String   @default("confirmed")
+  createdAt  DateTime @default(now())
+}
+
+model ConversationState {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  state     String
+  payload   Json?
+  updatedAt DateTime @updatedAt
+}
