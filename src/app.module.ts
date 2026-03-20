@@ -8,9 +8,12 @@ import { ConversationStateModule } from './conversation-state/conversation-state
 import { CustomersModule } from './customers/customers.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { StaffModule } from './staff/staff.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { RemindersModule } from './reminders/reminders.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     PrismaModule,
     WhatsAppModule,
     BotModule,
@@ -19,6 +22,7 @@ import { StaffModule } from './staff/staff.module';
     CustomersModule,
     AppointmentsModule,
     StaffModule,
+    RemindersModule,
   ],
   controllers: [WhatsAppController],
 })

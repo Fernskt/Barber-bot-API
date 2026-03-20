@@ -33,17 +33,19 @@ model Staff {
 }
 
 model Appointment {
-  id         String   @id @default(cuid())
-  customerId String
-  serviceId  String
-  staffId    String
-  startsAt   DateTime
-  status     String   @default("confirmed")
-  createdAt  DateTime @default(now())
+  id                    String   @id @default(cuid())
+  customerId            String
+  serviceId             String
+  staffId               String
+  startsAt              DateTime
+  status                String   @default("confirmed")
+  createdAt             DateTime @default(now())
+  reminder24hSentAt     DateTime?
+  reminder2hSentAt      DateTime?
 
-  customer   Customer @relation(fields: [customerId], references: [id])
-  service    Service  @relation(fields: [serviceId], references: [id])
-  staff      Staff    @relation(fields: [staffId], references: [id])
+  customer              Customer @relation(fields: [customerId], references: [id])
+  service               Service  @relation(fields: [serviceId], references: [id])
+  staff                 Staff    @relation(fields: [staffId], references: [id])
 }
 
 model ConversationState {

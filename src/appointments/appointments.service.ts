@@ -112,4 +112,64 @@ export class AppointmentsService {
       },
     });
   }
+
+  async findAppointmentsFor24hReminder(from: Date, to: Date) {
+    return this.prisma.appointment.findMany({
+      where: {
+        status: 'confirmed',
+        reminder24hSentAt: null,
+        startsAt: {
+          gte: from,
+          lte: to,
+        },
+      },
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+      orderBy: {
+        startsAt: 'asc',
+      },
+    });
+  }
+
+  async findAppointmentsFor2hReminder(from: Date, to: Date) {
+    return this.prisma.appointment.findMany({
+      where: {
+        status: 'confirmed',
+        reminder2hSentAt: null,
+        startsAt: {
+          gte: from,
+          lte: to,
+        },
+      },
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+      orderBy: {
+        startsAt: 'asc',
+      },
+    });
+  }
+
+  async mark24hReminderSent(appointmentId: string) {
+    return this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        reminder24hSentAt: new Date(),
+      },
+    });
+  }
+
+  async mark2hReminderSent(appointmentId: string) {
+    return this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        reminder2hSentAt: new Date(),
+      },
+    });
+  }
 }
