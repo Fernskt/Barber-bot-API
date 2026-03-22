@@ -6,6 +6,7 @@ import { ConversationStateModule } from '../conversation-state/conversation-stat
 import { CustomersModule } from '../customers/customers.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { StaffModule } from '../staff/staff.module';
+import { BusinessConfigModule } from '../business-config/business-config.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { StaffModule } from '../staff/staff.module';
     CustomersModule,
     AppointmentsModule,
     StaffModule,
+    BusinessConfigModule,
   ],
   providers: [BotService],
   exports: [BotService],

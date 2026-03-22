@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
+import { BusinessConfigService } from '../business-config/business-config.service';
 
 @Injectable()
 export class RemindersService {
@@ -10,6 +11,7 @@ export class RemindersService {
   constructor(
     private readonly appointmentsService: AppointmentsService,
     private readonly whatsappService: WhatsAppService,
+    private readonly businessConfigService: BusinessConfigService,
   ) {}
 
   @Cron('*/5 * * * *')
@@ -32,6 +34,9 @@ export class RemindersService {
       const time = appointment.startsAt.toISOString().slice(11, 16);
 
       try {
+        const config =
+          (await this.businessConfigService.getConfig()) ||
+          (await this.businessConfigService.createDefaultConfig());
         await this.whatsappService.sendText(
           appointment.customer.phone,
           `⏰ *Recordatorio de turno*
@@ -44,7 +49,7 @@ te recordamos tu turno para mañana.
 *Fecha:* ${date}
 *Horario:* ${time}
 
-Te esperamos en BarberShop 💈`,
+Te esperamos en *${config.businessName}* 💈`,
         );
 
         await this.appointmentsService.mark24hReminderSent(appointment.id);
@@ -72,6 +77,9 @@ Te esperamos en BarberShop 💈`,
       const time = appointment.startsAt.toISOString().slice(11, 16);
 
       try {
+        const config =
+          (await this.businessConfigService.getConfig()) ||
+          (await this.businessConfigService.createDefaultConfig());
         await this.whatsappService.sendText(
           appointment.customer.phone,
           `🔔 *Tu turno es en 2 horas*
@@ -84,7 +92,7 @@ te recordamos que tu turno se acerca.
 *Fecha:* ${date}
 *Horario:* ${time}
 
-¡Te esperamos! 💈`,
+¡Te esperamos en *${config.businessName}* 💈`,
         );
 
         await this.appointmentsService.mark2hReminderSent(appointment.id);

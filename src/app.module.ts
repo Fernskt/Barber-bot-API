@@ -10,6 +10,7 @@ import { AppointmentsModule } from './appointments/appointments.module';
 import { StaffModule } from './staff/staff.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RemindersModule } from './reminders/reminders.module';
+import { BusinessConfigModule } from './business-config/business-config.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { RemindersModule } from './reminders/reminders.module';
     AppointmentsModule,
     StaffModule,
     RemindersModule,
+    BusinessConfigModule,
   ],
   controllers: [WhatsAppController],
 })

@@ -11,8 +11,12 @@ import { ConversationStateService } from '../conversation-state/conversation-sta
 import { CustomersService } from '../customers/customers.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { StaffService } from '../staff/staff.service';
-import { BASE_SCHEDULES } from '../common/constants/schedules';
+import { WEEKDAY_ORDER, WEEKDAY_LABELS } from '../common/constants/weekdays';
 import { buildSchedulesMessage } from '../common/utils/schedule.util';
+import { BusinessConfigService } from '../business-config/business-config.service';
+import { getWeekdayKey } from '../common/utils/day.util';
+import { Service as ServiceModel, Staff as StaffModel } from '@prisma/client';
+import { MENU_NAVIGATION_BUTTONS } from '../common/constants/buttons';
 
 @Injectable()
 export class BotService {
@@ -23,7 +27,75 @@ export class BotService {
     private readonly customersService: CustomersService,
     private readonly appointmentsService: AppointmentsService,
     private readonly staffService: StaffService,
+    private readonly businessConfigService: BusinessConfigService,
   ) {}
+
+  private async sendMainMenu(to: string) {
+    await this.conversationStateService.setState(to, 'MAIN_MENU');
+
+    const config =
+      (await this.businessConfigService.getConfig()) ||
+      (await this.businessConfigService.createDefaultConfig());
+
+    await this.whatsappService.sendListMessage(
+      to,
+      `${config.welcomeMessage || '¿En qué puedo ayudarte hoy?'}`,
+      'Ver opciones',
+      [
+        {
+          id: 'menu_reservar',
+          title: 'Reservar turno',
+          description: 'Quiero reservar un turno',
+        },
+        {
+          id: 'menu_servicios',
+          title: 'Ver servicios',
+          description: 'Quiero consultar servicios, precios y duración',
+        },
+        {
+          id: 'menu_horarios',
+          title: 'Horarios',
+          description: 'Quiero ver los días y horarios de atención',
+        },
+        {
+          id: 'menu_barbero',
+          title: 'Hablar con un barbero',
+          description: 'Quiero dejar una consulta',
+        },
+        {
+          id: 'menu_cancelar',
+          title: 'Cancelar turno',
+          description: 'Quiero cancelar mi próximo turno confirmado',
+        },
+        {
+          id: 'menu_reprogramar',
+          title: 'Reprogramar turno',
+          description: 'Quiero cambiar la fecha y horario de mi turno',
+        },
+      ],
+      {
+        headerText: `💈 ${config.businessName}`,
+        footerText: 'Seleccioná una opción del menú',
+        sectionTitle: 'Menú principal',
+      },
+    );
+  }
+
+  private async sendMessageWithNavigationButtons(
+    to: string,
+    body: string,
+    headerText?: string,
+  ) {
+    await this.whatsappService.sendReplyButtons(
+      to,
+      body,
+      MENU_NAVIGATION_BUTTONS,
+      {
+        headerText,
+        footerText: 'Elegí una opción',
+      },
+    );
+  }
 
   async handleIncoming(payload: any) {
     const message = payload?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
@@ -31,39 +103,57 @@ export class BotService {
     if (!message) return;
 
     const from = message.from;
-    const text = message.text?.body?.trim().toLowerCase() || '';
-
+    const text = this.whatsappService.extractMessageText(message);
     console.log('Incoming message:', text);
 
     const currentState = await this.conversationStateService.getState(from);
 
-    if (text === 'hola' || text === 'menu') {
-      await this.conversationStateService.setState(from, 'MAIN_MENU');
+    if (text === 'go_menu') {
+      await this.sendMainMenu(from);
+      return;
+    }
+
+    if (text === 'exit_chat') {
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
+      await this.conversationStateService.setState(from, 'CHAT_ENDED');
 
       await this.whatsappService.sendText(
         from,
-        `💈 *Bienvenido a BarberShop* 💈
-¿En qué puedo ayudarte?
+        `✨ *Hasta pronto*
 
-​1️⃣​ Reservar turno
-​2️⃣​ Ver servicios
-​3️⃣​ Horarios
-​4️⃣​ Hablar con un barbero
-​5️⃣​ Cancelar un turno
-6️⃣ Reprogramar turno`,
+Gracias por comunicarte con *${config.businessName}* 💈
+
+Cuando quieras, escribinos de nuevo. Te esperamos.`,
       );
+      return;
+    }
+
+    if (text === 'hola' || text === 'menu') {
+      await this.sendMainMenu(from);
       return;
     }
 
     if (currentState?.state === 'SELECTING_SERVICE') {
       const services = await this.servicesService.findAll();
-      const selectedIndex = Number(text) - 1;
-      const selectedService = services[selectedIndex];
+
+      let selectedService: ServiceModel | null = null;
+
+      if (text.startsWith('service_')) {
+        const serviceId = text.replace('service_', '');
+        selectedService =
+          services.find((service) => service.id === serviceId) || null;
+      } else {
+        const selectedIndex = Number(text) - 1;
+        selectedService = services[selectedIndex] || null;
+      }
 
       if (!selectedService) {
         await this.whatsappService.sendText(
           from,
-          'Opción inválida. Respondé con el número de un servicio.',
+          ' ✖️ Servicio inválido. Por favor seleccioná una opción de la lista.',
         );
         return;
       }
@@ -78,32 +168,41 @@ export class BotService {
         return;
       }
 
-      const staffText = staffList
-        .map((staff, index) => `${index + 1}. ${staff.name}`)
-        .join('\n');
-
       await this.conversationStateService.setState(from, 'SELECTING_STAFF', {
         serviceId: selectedService.id,
         serviceName: selectedService.name,
       });
 
-      await this.whatsappService.sendText(
+      await this.whatsappService.sendListMessage(
         from,
-        `Elegiste: ${selectedService.name} ✅
-
-Ahora elegí un barbero:
-
-${staffText}
-
-Respondé con el número de la opción.`,
+        `Elegiste: ${selectedService.name} ✅\n\nAhora elegí un barbero.`,
+        'Ver barberos',
+        staffList.map((staff) => ({
+          id: `staff_${staff.id}`,
+          title: staff.name,
+          description: 'Disponible para atenderte',
+        })),
+        {
+          headerText: 'Barberos disponibles',
+          footerText: 'Seleccioná un barbero',
+          sectionTitle: 'Equipo',
+        },
       );
       return;
     }
 
     if (currentState?.state === 'SELECTING_STAFF') {
       const staffList = await this.staffService.findAllActive();
-      const selectedIndex = Number(text) - 1;
-      const selectedStaff = staffList[selectedIndex];
+
+      let selectedStaff: StaffModel | null = null;
+
+      if (text.startsWith('staff_')) {
+        const staffId = text.replace('staff_', '');
+        selectedStaff = staffList.find((staff) => staff.id === staffId) || null;
+      } else {
+        const selectedIndex = Number(text) - 1;
+        selectedStaff = staffList[selectedIndex] || null;
+      }
 
       if (!selectedStaff) {
         await this.whatsappService.sendText(
@@ -183,18 +282,28 @@ Ahora decime tu nombre.`,
         return;
       }
 
-      if (isSunday(dateText)) {
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
+      const weekdayKey = getWeekdayKey(dateText);
+
+      const closedDays = this.businessConfigService.normalizeClosedDays(
+        config.closedDays,
+      );
+
+      if (closedDays.includes(weekdayKey)) {
         await this.whatsappService.sendText(
           from,
-          '⚠️​ Los domingos estamos *cerrados*. Elegí otra fecha.',
+          `❌ Ese día no atendemos *(${weekdayKey})*. Elegí otra fecha.`,
         );
         return;
       }
 
-      if (isTooFarInFuture(dateText, 30)) {
+      if (isTooFarInFuture(dateText, config.bookingWindowDays)) {
         await this.whatsappService.sendText(
           from,
-          '⚠️​ Solo podés reservar con *hasta 30 días de anticipación*. Elegí una fecha más cercana.',
+          `⚠️​ Solo podés reservar con *hasta ${config.bookingWindowDays} días de anticipación*. Elegí una fecha más cercana.`,
         );
         return;
       }
@@ -213,11 +322,19 @@ Ahora decime tu nombre.`,
         staffId,
       );
 
+      const bookingSlots = this.businessConfigService.normalizeBookingSlots(
+        config.bookingSlots,
+      );
+
+      const daySchedules = Array.isArray(bookingSlots[weekdayKey])
+        ? bookingSlots[weekdayKey]
+        : [];
+
       const occupiedSchedules = appointments.map((appointment) =>
         appointment.startsAt.toISOString().slice(11, 16),
       );
 
-      const availableSchedules = BASE_SCHEDULES.filter(
+      const availableSchedules = daySchedules.filter(
         (schedule) => !occupiedSchedules.includes(schedule),
       );
 
@@ -320,6 +437,10 @@ Respondé con el *número* del horario.`,
         selectedTime,
       });
 
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
       await this.whatsappService.sendText(
         from,
         `✅ *Turno confirmado!*
@@ -330,7 +451,7 @@ Respondé con el *número* del horario.`,
 *Fecha:* ${selectedDate}
 *Horario:* ${selectedTime}
 
-Gracias por reservar en *BarberShop* 💈`,
+Gracias por reservar en *${config.businessName}* 💈`,
       );
       return;
     }
@@ -346,13 +467,14 @@ Gracias por reservar en *BarberShop* 💈`,
         },
       );
 
-      await this.whatsappService.sendText(
+      await this.sendMessageWithNavigationButtons(
         from,
         `✅ *Tu consulta fue registrada:*
 
 "_${userMessage}_"
 
-Te responderemos a la brevedad. Escribí ​​✍️​ *"menu"* para volver al inicio.​`,
+Te responderemos a la brevedad.`,
+        'Consulta registrada',
       );
       return;
     }
@@ -365,31 +487,24 @@ Te responderemos a la brevedad. Escribí ​​✍️​ *"menu"* para volver al
           ? (currentState.payload as Record<string, any>)
           : {};
 
-      if (text === '1') {
+      if (text === '1' || text === 'cancel_confirm_yes') {
         await this.appointmentsService.cancelAppointment(
           currentPayload.appointmentId as string,
         );
 
         await this.conversationStateService.setState(from, 'MAIN_MENU');
 
-        await this.whatsappService.sendText(
+        await this.sendMessageWithNavigationButtons(
           from,
-          `✅ *Tu turno fue cancelado correctamente.*
-
-Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
+          `✅ *Tu turno fue cancelado correctamente.*`,
+          'Turno cancelado',
         );
         return;
       }
 
-      if (text === '2') {
+      if (text === '2' || text === 'cancel_confirm_no') {
         await this.conversationStateService.setState(from, 'MAIN_MENU');
-
-        await this.whatsappService.sendText(
-          from,
-          `Operación cancelada.
-
-Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
-        );
+        await this.sendMainMenu(from);
         return;
       }
 
@@ -408,7 +523,7 @@ Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
           ? (currentState.payload as Record<string, any>)
           : {};
 
-      if (text === '1') {
+      if (text === '1' || text === 'reschedule_confirm_yes') {
         await this.conversationStateService.setState(
           from,
           'RESCHEDULE_ASKING_DATE',
@@ -428,13 +543,10 @@ Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
         return;
       }
 
-      if (text === '2') {
+      if (text === '2' || text === 'reschedule_confirm_no') {
         await this.conversationStateService.setState(from, 'MAIN_MENU');
 
-        await this.whatsappService.sendText(
-          from,
-          'Operación cancelada.\nEscribí *"menu"* para volver al inicio.',
-        );
+        await this.sendMainMenu(from);
         return;
       }
 
@@ -490,6 +602,33 @@ Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
       const staffId = currentPayload.staffId as string;
       const appointmentId = currentPayload.appointmentId as string;
 
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
+      const weekdayKey = getWeekdayKey(dateText);
+
+      const closedDays = Array.isArray(config.closedDays)
+        ? config.closedDays.map(String)
+        : [];
+
+      if (closedDays.includes(weekdayKey)) {
+        await this.whatsappService.sendText(
+          from,
+          `Ese día no atendemos (${weekdayKey}). Elegí otra fecha.`,
+        );
+        return;
+      }
+
+      const bookingSlots =
+        config.bookingSlots && typeof config.bookingSlots === 'object'
+          ? (config.bookingSlots as Record<string, string[]>)
+          : {};
+
+      const daySchedules = Array.isArray(bookingSlots[weekdayKey])
+        ? bookingSlots[weekdayKey]
+        : [];
+
       const appointments = await this.appointmentsService.findByDateAndStaff(
         dateText,
         staffId,
@@ -499,7 +638,7 @@ Escribí ​​✍️​ *"menu"* para volver al inicio. 👇​`,
         .filter((appointment) => appointment.id !== appointmentId)
         .map((appointment) => appointment.startsAt.toISOString().slice(11, 16));
 
-      const availableSchedules = BASE_SCHEDULES.filter(
+      const availableSchedules = daySchedules.filter(
         (schedule) => !occupiedSchedules.includes(schedule),
       );
 
@@ -596,7 +735,11 @@ Respondé con el *número* del horario.`,
 
       await this.conversationStateService.setState(from, 'MAIN_MENU');
 
-      await this.whatsappService.sendText(
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
+      await this.sendMessageWithNavigationButtons(
         from,
         `✅ *Turno reprogramado correctamente*
 
@@ -604,14 +747,13 @@ Nombre: ${customerName}
 Servicio: ${serviceName}
 Barbero: ${staffName}
 Nueva fecha: ${selectedDate}
-Nuevo horario: ${selectedTime}
-
-Escribí *"menu"* para volver al inicio.`,
+Nuevo horario: ${selectedTime}`,
+        'Turno reprogramado',
       );
       return;
     }
 
-    if (text === '1') {
+    if (text === '1' || text === 'menu_reservar') {
       const services = await this.servicesService.findAll();
 
       if (!services.length) {
@@ -621,28 +763,28 @@ Escribí *"menu"* para volver al inicio.`,
         );
         return;
       }
-
-      const servicesText = services
-        .map(
-          (service, index) =>
-            `${index + 1}. ${service.name} - $${service.price} - ${service.durationMinutes} min`,
-        )
-        .join('\n');
 
       await this.conversationStateService.setState(from, 'SELECTING_SERVICE');
 
-      await this.whatsappService.sendText(
+      await this.whatsappService.sendListMessage(
         from,
-        `✂️ *Elegí un servicio:*
-
-${servicesText}
-
-Respondé con el *número* de la opción.`,
+        'Elegí el servicio que querés reservar.',
+        'Ver servicios',
+        services.map((service) => ({
+          id: `service_${service.id}`,
+          title: service.name,
+          description: `$${service.price} • ${service.durationMinutes} min`,
+        })),
+        {
+          headerText: '✂️ Reservar turno',
+          footerText: 'Seleccioná un servicio',
+          sectionTitle: 'Servicios',
+        },
       );
       return;
     }
 
-    if (text === '2') {
+    if (text === '2' || text === 'menu_servicios') {
       const services = await this.servicesService.findAll();
 
       if (!services.length) {
@@ -660,32 +802,49 @@ Respondé con el *número* de la opción.`,
         )
         .join('\n');
 
-      await this.whatsappService.sendText(
+      await this.sendMessageWithNavigationButtons(
         from,
         `💇 *Servicios disponibles:*
-
-${servicesText}
-
-Escribí ​​✍️​ *"menu"* para volver. 👇​`,
+${servicesText}`,
+        'Servicios',
       );
       return;
     }
 
-    if (text === '3') {
-      await this.whatsappService.sendText(
+    if (text === '3' || text === 'menu_horarios') {
+      const config =
+        (await this.businessConfigService.getConfig()) ||
+        (await this.businessConfigService.createDefaultConfig());
+
+      const openingHours = this.businessConfigService.normalizeOpeningHours(
+        config.openingHours,
+      );
+
+      const closedDays = this.businessConfigService.normalizeClosedDays(
+        config.closedDays,
+      );
+
+      const hoursText = WEEKDAY_ORDER.filter(
+        (day) => openingHours[day] && !closedDays.includes(day),
+      )
+        .map((day) => `*${WEEKDAY_LABELS[day]}:* ${openingHours[day]}`)
+        .join('\n');
+
+      const closedText = closedDays.length
+        ? `\n*${closedDays.map((day) => WEEKDAY_LABELS[day]).join(', ')}* Cerrado:`
+        : '';
+
+      await this.sendMessageWithNavigationButtons(
         from,
         `🕘 *Horarios de atención*
 
-*Lunes a viernes:* 10:00 a 19:00
-*Sábados:* 10:00 a 14:00
-*Domingos:* cerrado ​❌​
-
-Escribí ​​✍️​ *"menu"* para volver al inicio. 👇 ​`,
+${hoursText}${closedText}`,
+        'Horarios',
       );
       return;
     }
 
-    if (text === '4') {
+    if (text === '4' || text === 'menu_barbero') {
       await this.conversationStateService.setState(from, 'WAITING_HUMAN_HELP');
 
       await this.whatsappService.sendText(
@@ -697,14 +856,15 @@ Por favor, escribí ​​✍️​ tu consulta y la dejamos registrada. 👇​
       return;
     }
 
-    if (text === '5') {
+    if (text === '5' || text === 'menu_cancelar') {
       const appointment =
         await this.appointmentsService.findNextAppointmentByCustomerPhone(from);
 
       if (!appointment) {
-        await this.whatsappService.sendText(
+        await this.sendMessageWithNavigationButtons(
           from,
-          '​​🔴​ No encontré turnos futuros confirmados para cancelar.\nEscribí ​​✍️​ "menu" para volver. 👇​',
+          'No encontré turnos futuros confirmados para cancelar.',
+          'Cancelar turno',
         );
         return;
       }
@@ -724,31 +884,35 @@ Por favor, escribí ​​✍️​ tu consulta y la dejamos registrada. 👇​
         },
       );
 
-      await this.whatsappService.sendText(
+      await this.whatsappService.sendReplyButtons(
         from,
-        `✅ *Encontré este turno:*
+        `Encontré este turno:
 
-*Servicio:* ${appointment.service.name}
-*Barbero:* ${appointment.staff.name}
-*Fecha:* ${appointmentDate}
-*Horario:* ${appointmentTime}
-
-*Respondé con:*
-
-1️⃣ Confirmar cancelación
-2️⃣ Volver al menú`,
+Servicio: ${appointment.service.name}
+Barbero: ${appointment.staff.name}
+Fecha: ${appointmentDate}
+Horario: ${appointmentTime}`,
+        [
+          { id: 'cancel_confirm_yes', title: 'Confirmar' },
+          { id: 'cancel_confirm_no', title: 'Volver' },
+        ],
+        {
+          headerText: 'Cancelar turno',
+          footerText: 'Elegí una opción',
+        },
       );
       return;
     }
 
-    if (text === '6') {
+    if (text === '6' || text === 'menu_reprogramar') {
       const appointment =
         await this.appointmentsService.findNextAppointmentByCustomerPhone(from);
 
       if (!appointment) {
-        await this.whatsappService.sendText(
+        await this.sendMessageWithNavigationButtons(
           from,
-          'No encontré turnos futuros confirmados para reprogramar.\nEscribí "menu" para volver.',
+          'No encontré turnos futuros confirmados para reprogramar.',
+          'Reprogramar turno',
         );
         return;
       }
@@ -771,17 +935,22 @@ Por favor, escribí ​​✍️​ tu consulta y la dejamos registrada. 👇​
         },
       );
 
-      await this.whatsappService.sendText(
+      await this.whatsappService.sendReplyButtons(
         from,
-        `🔄 *Encontré este turno:*
+        `Encontré este turno:
 
 Servicio: ${appointment.service.name}
 Barbero: ${appointment.staff.name}
 Fecha: ${appointmentDate}
-Horario: ${appointmentTime}
-
-1️⃣ Confirmar reprogramación
-2️⃣ Volver al menú`,
+Horario: ${appointmentTime}`,
+        [
+          { id: 'reschedule_confirm_yes', title: 'Reprogramar' },
+          { id: 'reschedule_confirm_no', title: 'Volver' },
+        ],
+        {
+          headerText: 'Reprogramar turno',
+          footerText: 'Elegí una opción',
+        },
       );
       return;
     }

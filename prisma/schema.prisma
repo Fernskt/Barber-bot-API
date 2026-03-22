@@ -55,3 +55,17 @@ model ConversationState {
   payload   Json?
   updatedAt DateTime @updatedAt
 }
+
+model BusinessConfig {
+  id                String   @id @default(cuid())
+  businessName      String
+  welcomeMessage    String?
+  address           String?
+  phone             String?
+  bookingWindowDays Int      @default(30)
+  openingHours      Json?
+  closedDays        Json?
+  bookingSlots      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}

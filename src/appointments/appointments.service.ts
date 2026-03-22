@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -18,6 +18,58 @@ export class AppointmentsService {
         staffId: data.staffId,
         startsAt: data.startsAt,
         status: 'confirmed',
+      },
+    });
+  }
+
+  async findAll() {
+    return this.prisma.appointment.findMany({
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+      orderBy: {
+        startsAt: 'asc',
+      },
+    });
+  }
+
+  async findById(id: string) {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Turno no encontrado');
+    }
+
+    return appointment;
+  }
+
+  async findByDate(date: string) {
+    const startOfDay = new Date(`${date}T00:00:00`);
+    const endOfDay = new Date(`${date}T23:59:59`);
+
+    return this.prisma.appointment.findMany({
+      where: {
+        startsAt: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+      orderBy: {
+        startsAt: 'asc',
       },
     });
   }
@@ -73,6 +125,30 @@ export class AppointmentsService {
     });
   }
 
+  async cancelAppointment(appointmentId: string) {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+    });
+
+    if (!appointment) {
+      throw new NotFoundException('Turno no encontrado');
+    }
+
+    return this.prisma.appointment.update({
+      where: {
+        id: appointmentId,
+      },
+      data: {
+        status: 'cancelled',
+      },
+      include: {
+        customer: true,
+        service: true,
+        staff: true,
+      },
+    });
+  }
+
   async updateAppointmentDateTime(appointmentId: string, startsAt: Date) {
     return this.prisma.appointment.update({
       where: {
@@ -85,30 +161,6 @@ export class AppointmentsService {
         service: true,
         staff: true,
         customer: true,
-      },
-    });
-  }
-
-  async findById(appointmentId: string) {
-    return this.prisma.appointment.findUnique({
-      where: {
-        id: appointmentId,
-      },
-      include: {
-        service: true,
-        staff: true,
-        customer: true,
-      },
-    });
-  }
-
-  async cancelAppointment(appointmentId: string) {
-    return this.prisma.appointment.update({
-      where: {
-        id: appointmentId,
-      },
-      data: {
-        status: 'cancelled',
       },
     });
   }
