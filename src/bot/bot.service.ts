@@ -1,8 +1,10 @@
 import {
+  buildLocalDateTime,
   isPastDate,
   isSunday,
   isTooFarInFuture,
   isValidDateFormat,
+  requiresMinimumLeadTime,
 } from '../common/utils/date.util';
 import { Injectable } from '@nestjs/common';
 import { WhatsAppService } from '../whatsapp/whatsapp.service';
@@ -335,7 +337,9 @@ Ahora decime tu nombre.`,
       );
 
       const availableSchedules = daySchedules.filter(
-        (schedule) => !occupiedSchedules.includes(schedule),
+        (schedule) =>
+          !occupiedSchedules.includes(schedule) &&
+          !requiresMinimumLeadTime(buildLocalDateTime(dateText, schedule)),
       );
 
       if (!availableSchedules.length) {
@@ -395,7 +399,24 @@ Respondé con el *número* del horario.`,
       const staffName = currentPayload.staffName as string;
       const selectedDate = currentPayload.selectedDate as string;
 
-      const startsAt = new Date(`${selectedDate}T${selectedTime}:00`);
+      const startsAt = buildLocalDateTime(selectedDate, selectedTime);
+
+      if (requiresMinimumLeadTime(startsAt)) {
+        await this.whatsappService.sendText(
+          from,
+          'Si reservás para hoy, el turno debe ser con al menos 2 horas de anticipación. Elegí otro horario o una fecha posterior.',
+        );
+
+        await this.conversationStateService.setState(from, 'ASKING_DATE', {
+          serviceId,
+          serviceName,
+          staffId,
+          staffName,
+          customerName,
+        });
+
+        return;
+      }
 
       const existingAppointment =
         await this.appointmentsService.findByStartsAtAndStaff(
@@ -639,7 +660,9 @@ Te responderemos a la brevedad.`,
         .map((appointment) => appointment.startsAt.toISOString().slice(11, 16));
 
       const availableSchedules = daySchedules.filter(
-        (schedule) => !occupiedSchedules.includes(schedule),
+        (schedule) =>
+          !occupiedSchedules.includes(schedule) &&
+          !requiresMinimumLeadTime(buildLocalDateTime(dateText, schedule)),
       );
 
       if (!availableSchedules.length) {
@@ -703,7 +726,24 @@ Respondé con el *número* del horario.`,
       const customerName = currentPayload.customerName as string;
       const selectedDate = currentPayload.selectedDate as string;
 
-      const startsAt = new Date(`${selectedDate}T${selectedTime}:00`);
+      const startsAt = buildLocalDateTime(selectedDate, selectedTime);
+
+      if (requiresMinimumLeadTime(startsAt)) {
+        await this.whatsappService.sendText(
+          from,
+          'Si reprogramás para hoy, el turno debe ser con al menos 2 horas de anticipación. Elegí otro horario o una fecha posterior.',
+        );
+
+        await this.conversationStateService.setState(
+          from,
+          'RESCHEDULE_ASKING_DATE',
+          {
+            ...currentPayload,
+          },
+        );
+
+        return;
+      }
 
       const existingAppointment =
         await this.appointmentsService.findByStartsAtAndStaff(

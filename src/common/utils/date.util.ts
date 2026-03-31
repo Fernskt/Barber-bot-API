@@ -47,3 +47,31 @@ export function isTooFarInFuture(date: string, maxDaysAhead = 30): boolean {
 
   return inputDate > maxDate;
 }
+
+export function buildLocalDateTime(date: string, time: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hours, minutes] = time.split(':').map(Number);
+
+  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+}
+
+export function requiresMinimumLeadTime(
+  appointmentDateTime: Date,
+  minimumHours = 2,
+  now = new Date(),
+): boolean {
+  const isSameDay =
+    appointmentDateTime.getFullYear() === now.getFullYear() &&
+    appointmentDateTime.getMonth() === now.getMonth() &&
+    appointmentDateTime.getDate() === now.getDate();
+
+  if (!isSameDay) {
+    return false;
+  }
+
+  const minimumAllowedTime = new Date(
+    now.getTime() + minimumHours * 60 * 60 * 1000,
+  );
+
+  return appointmentDateTime < minimumAllowedTime;
+}
