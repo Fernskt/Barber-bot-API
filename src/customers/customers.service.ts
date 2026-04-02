@@ -8,6 +8,10 @@ export class CustomersService {
   async findByPhone(phone: string) {
     return this.prisma.customer.findUnique({
       where: { phone },
+      include: {
+        lastService: true,
+        lastStaff: true,
+      },
     });
   }
 
@@ -19,6 +23,10 @@ export class CustomersService {
         return this.prisma.customer.update({
           where: { phone },
           data: { name },
+          include: {
+            lastService: true,
+            lastStaff: true,
+          },
         });
       }
 
@@ -30,6 +38,66 @@ export class CustomersService {
         phone,
         name,
       },
+      include: {
+        lastService: true,
+        lastStaff: true,
+      },
     });
+  }
+
+  async findAll() {
+    return this.prisma.customer.findMany({
+      include: {
+        lastService: true,
+        lastStaff: true,
+        appointments: {
+          include: {
+            service: true,
+            staff: true,
+          },
+          orderBy: { startsAt: 'desc' },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findById(id: string) {
+    return this.prisma.customer.findUnique({
+      where: { id },
+      include: {
+        lastService: true,
+        lastStaff: true,
+        appointments: {
+          include: {
+            service: true,
+            staff: true,
+          },
+          orderBy: { startsAt: 'desc' },
+        },
+      },
+    });
+  }
+
+  async updateNotes(id: string, notes: string) {
+    return this.prisma.customer.update({
+      where: { id },
+      data: { notes },
+    });
+  }
+
+  async updateLastService(
+    customerId: string,
+    serviceId: string,
+    staffId: string,
+  ) {
+    try {
+      await this.prisma.customer.update({
+        where: { id: customerId },
+        data: { lastServiceId: serviceId, lastStaffId: staffId },
+      });
+    } catch (error) {
+      console.error('Error updating last service for customer:', error);
+    }
   }
 }

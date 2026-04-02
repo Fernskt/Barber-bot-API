@@ -453,6 +453,12 @@ Respondé con el *número* del horario.`,
         startsAt,
       });
 
+      await this.customersService.updateLastService(
+        customer.id,
+        serviceId,
+        staffId,
+      );
+
       await this.conversationStateService.setState(from, 'BOOKING_CONFIRMED', {
         ...currentPayload,
         selectedTime,
@@ -804,6 +810,39 @@ Nuevo horario: ${selectedTime}`,
         return;
       }
 
+      const existingCustomer = await this.customersService.findByPhone(from);
+
+      if (
+        existingCustomer?.lastServiceId &&
+        existingCustomer.lastService &&
+        existingCustomer.lastStaff?.active
+      ) {
+        await this.conversationStateService.setState(
+          from,
+          'CONFIRMING_REPEAT_SERVICE',
+          {
+            lastServiceId: existingCustomer.lastServiceId,
+            lastServiceName: existingCustomer.lastService.name,
+            lastStaffId: existingCustomer.lastStaffId,
+            lastStaffName: existingCustomer.lastStaff.name,
+          },
+        );
+
+        await this.whatsappService.sendReplyButtons(
+          from,
+          `Tu último servicio fue *${existingCustomer.lastService.name}* con *${existingCustomer.lastStaff.name}*.\n\n¿Querés reservar lo mismo?`,
+          [
+            { id: 'repeat_yes', title: 'Sí, lo mismo' },
+            { id: 'repeat_no', title: 'No, cambiar' },
+          ],
+          {
+            headerText: '✂️ Reservar turno',
+            footerText: 'Seleccioná una opción',
+          },
+        );
+        return;
+      }
+
       await this.conversationStateService.setState(from, 'SELECTING_SERVICE');
 
       await this.whatsappService.sendListMessage(
@@ -819,6 +858,91 @@ Nuevo horario: ${selectedTime}`,
           headerText: '✂️ Reservar turno',
           footerText: 'Seleccioná un servicio',
           sectionTitle: 'Servicios',
+        },
+      );
+      return;
+    }
+
+    if (currentState?.state === 'CONFIRMING_REPEAT_SERVICE') {
+      const currentPayload =
+        currentState?.payload &&
+        typeof currentState.payload === 'object' &&
+        !Array.isArray(currentState.payload)
+          ? (currentState.payload as Record<string, any>)
+          : {};
+
+      if (text === 'repeat_yes') {
+        const existingCustomer = await this.customersService.findByPhone(from);
+
+        if (existingCustomer?.name) {
+          await this.conversationStateService.setState(from, 'ASKING_DATE', {
+            serviceId: currentPayload.lastServiceId,
+            serviceName: currentPayload.lastServiceName,
+            staffId: currentPayload.lastStaffId,
+            staffName: currentPayload.lastStaffName,
+            customerName: existingCustomer.name,
+          });
+
+          await this.whatsappService.sendText(
+            from,
+            `*Perfecto, ${existingCustomer.name}* 👌
+
+📆 Decime la fecha en formato *YYYY-MM-DD*.
+*Ejemplo:* 2026-03-21
+
+*Importante:*
+- No atendemos domingos
+- Solo tomamos turnos desde hoy hasta 30 días en adelante`,
+          );
+        } else {
+          await this.conversationStateService.setState(from, 'ASKING_NAME', {
+            serviceId: currentPayload.lastServiceId,
+            serviceName: currentPayload.lastServiceName,
+            staffId: currentPayload.lastStaffId,
+            staffName: currentPayload.lastStaffName,
+          });
+
+          await this.whatsappService.sendText(
+            from,
+            `Elegiste: ${currentPayload.lastServiceName} con ${currentPayload.lastStaffName} ✅\n\nDecime tu nombre.`,
+          );
+        }
+        return;
+      }
+
+      if (text === 'repeat_no') {
+        const services = await this.servicesService.findAll();
+
+        await this.conversationStateService.setState(from, 'SELECTING_SERVICE');
+
+        await this.whatsappService.sendListMessage(
+          from,
+          'Elegí el servicio que querés reservar.',
+          'Ver servicios',
+          services.map((service) => ({
+            id: `service_${service.id}`,
+            title: service.name,
+            description: `$${service.price} • ${service.durationMinutes} min`,
+          })),
+          {
+            headerText: '✂️ Reservar turno',
+            footerText: 'Seleccioná un servicio',
+            sectionTitle: 'Servicios',
+          },
+        );
+        return;
+      }
+
+      await this.whatsappService.sendReplyButtons(
+        from,
+        `Tu último servicio fue *${currentPayload.lastServiceName}* con *${currentPayload.lastStaffName}*.\n\n¿Querés reservar lo mismo?`,
+        [
+          { id: 'repeat_yes', title: 'Sí, lo mismo' },
+          { id: 'repeat_no', title: 'No, cambiar' },
+        ],
+        {
+          headerText: '✂️ Reservar turno',
+          footerText: 'Seleccioná una opción',
         },
       );
       return;

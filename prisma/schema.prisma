@@ -3,33 +3,41 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Customer {
-  id           String        @id @default(cuid())
-  phone        String        @unique
-  name         String?
-  createdAt    DateTime      @default(now())
-  appointments Appointment[]
+  id              String        @id @default(cuid())
+  phone           String        @unique
+  name            String?
+  notes           String?
+  lastServiceId   String?
+  lastStaffId     String?
+  createdAt       DateTime      @default(now())
+  appointments    Appointment[]
+  lastService     Service?      @relation("CustomerLastService", fields: [lastServiceId], references: [id])
+  lastStaff       Staff?        @relation("CustomerLastStaff", fields: [lastStaffId], references: [id])
 }
 
 model Service {
-  id              String        @id @default(cuid())
-  name            String
-  durationMinutes Int
-  price           Float
-  createdAt       DateTime      @default(now())
-  appointments    Appointment[]
+  id                   String        @id @default(cuid())
+  name                 String
+  durationMinutes      Int
+  price                Float
+  createdAt            DateTime      @default(now())
+  appointments         Appointment[]
+  customersLastService Customer[]    @relation("CustomerLastService")
 }
 
 model Staff {
-  id           String        @id @default(cuid())
-  name         String
-  active       Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  appointments Appointment[]
+  id                String        @id @default(cuid())
+  name              String
+  active            Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  appointments      Appointment[]
+  customersLastStaff Customer[]   @relation("CustomerLastStaff")
 }
 
 model Appointment {
