@@ -224,4 +224,31 @@ export class AppointmentsService {
       },
     });
   }
+
+  async findAppointmentsForFeedback(from: Date, to: Date) {
+    return this.prisma.appointment.findMany({
+      where: {
+        status: 'confirmed',
+        feedbackSentAt: null,
+        rating: null,
+        startsAt: { gte: from, lte: to },
+      },
+      include: { customer: true, service: true, staff: true },
+      orderBy: { startsAt: 'asc' },
+    });
+  }
+
+  async markFeedbackSent(appointmentId: string) {
+    return this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { feedbackSentAt: new Date() },
+    });
+  }
+
+  async saveRating(appointmentId: string, rating: number) {
+    return this.prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { rating },
+    });
+  }
 }

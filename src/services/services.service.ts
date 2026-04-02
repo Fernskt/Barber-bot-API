@@ -8,10 +8,23 @@ export class ServicesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.service.findMany({
-      orderBy: {
-        createdAt: 'asc',
-      },
+    const [services, ratings] = await Promise.all([
+      this.prisma.service.findMany({ orderBy: { createdAt: 'asc' } }),
+      this.prisma.appointment.groupBy({
+        by: ['serviceId'],
+        where: { rating: { not: null } },
+        _avg: { rating: true },
+        _count: { rating: true },
+      }),
+    ]);
+
+    return services.map((s) => {
+      const r = ratings.find((r) => r.serviceId === s.id);
+      return {
+        ...s,
+        avgRating: r?._avg.rating ?? null,
+        totalRatings: r?._count.rating ?? 0,
+      };
     });
   }
 

@@ -7,6 +7,7 @@ import { CustomersModule } from '../customers/customers.module';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { StaffModule } from '../staff/staff.module';
 import { BusinessConfigModule } from '../business-config/business-config.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { BusinessConfigModule } from '../business-config/business-config.module'
     AppointmentsModule,
     StaffModule,
     BusinessConfigModule,
+    WaitlistModule,
   ],
   providers: [BotService],
   exports: [BotService],

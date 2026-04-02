@@ -13,6 +13,8 @@ import { ConversationStateService } from '../conversation-state/conversation-sta
 import { CustomersService } from '../customers/customers.service';
 import { AppointmentsService } from '../appointments/appointments.service';
 import { StaffService } from '../staff/staff.service';
+import { StaffAvailabilityService } from '../staff/staff-availability.service';
+import { WaitlistService } from '../waitlist/waitlist.service';
 import { WEEKDAY_ORDER, WEEKDAY_LABELS } from '../common/constants/weekdays';
 import { buildSchedulesMessage } from '../common/utils/schedule.util';
 import { BusinessConfigService } from '../business-config/business-config.service';
@@ -30,6 +32,8 @@ export class BotService {
     private readonly appointmentsService: AppointmentsService,
     private readonly staffService: StaffService,
     private readonly businessConfigService: BusinessConfigService,
+    private readonly staffAvailabilityService: StaffAvailabilityService,
+    private readonly waitlistService: WaitlistService,
   ) {}
 
   private async sendMainMenu(to: string) {
@@ -297,7 +301,7 @@ Ahora decime tu nombre.`,
       if (closedDays.includes(weekdayKey)) {
         await this.whatsappService.sendText(
           from,
-          `❌ Ese día no atendemos *(${weekdayKey})*. Elegí otra fecha.`,
+          `❌ Ese día el local no atiende *(${weekdayKey})*. Elegí otra fecha.`,
         );
         return;
       }
@@ -319,6 +323,20 @@ Ahora decime tu nombre.`,
 
       const staffId = currentPayload.staffId as string;
 
+      // Verificar disponibilidad del barbero en esa fecha
+      const staffAvailability = await this.staffAvailabilityService.getForDate(
+        staffId,
+        dateText,
+      );
+
+      if (staffAvailability && !staffAvailability.isAvailable) {
+        await this.whatsappService.sendText(
+          from,
+          `❌ *${currentPayload.staffName as string}* no trabaja ese día. Elegí otra fecha.`,
+        );
+        return;
+      }
+
       const appointments = await this.appointmentsService.findByDateAndStaff(
         dateText,
         staffId,
@@ -328,9 +346,18 @@ Ahora decime tu nombre.`,
         config.bookingSlots,
       );
 
-      const daySchedules = Array.isArray(bookingSlots[weekdayKey])
+      let daySchedules = Array.isArray(bookingSlots[weekdayKey])
         ? bookingSlots[weekdayKey]
         : [];
+
+      // Filtrar slots por horario personalizado del barbero
+      if (staffAvailability?.isAvailable) {
+        daySchedules = this.staffAvailabilityService.filterSlotsByHours(
+          daySchedules,
+          staffAvailability.startTime ?? null,
+          staffAvailability.endTime ?? null,
+        );
+      }
 
       const occupiedSchedules = appointments.map((appointment) =>
         appointment.startsAt.toISOString().slice(11, 16),
@@ -343,9 +370,21 @@ Ahora decime tu nombre.`,
       );
 
       if (!availableSchedules.length) {
-        await this.whatsappService.sendText(
+        await this.conversationStateService.setState(from, 'JOINING_WAITLIST', {
+          ...currentPayload,
+          selectedDate: dateText,
+        });
+
+        await this.whatsappService.sendReplyButtons(
           from,
-          '​​❌​ No hay horarios disponibles para esa fecha con ese barbero. Probá con otra.',
+          `❌ No hay horarios disponibles para esa fecha con *${currentPayload.staffName as string}*.
+
+¿Querés anotarte en la *lista de espera*? Si se cancela un turno, te avisamos al instante.`,
+          [
+            { id: 'waitlist_join', title: '🔔 Anotarme' },
+            { id: 'waitlist_skip', title: '📅 Otra fecha' },
+          ],
+          { headerText: 'Sin disponibilidad', footerText: 'Lista de espera' },
         );
         return;
       }
@@ -515,8 +554,18 @@ Te responderemos a la brevedad.`,
           : {};
 
       if (text === '1' || text === 'cancel_confirm_yes') {
-        await this.appointmentsService.cancelAppointment(
+        const appointment = await this.appointmentsService.findById(
           currentPayload.appointmentId as string,
+        );
+
+        await this.appointmentsService.cancelAppointment(appointment.id);
+
+        const freedDate = appointment.startsAt.toISOString().slice(0, 10);
+        const freedTime = appointment.startsAt.toISOString().slice(11, 16);
+        void this.waitlistService.checkAndNotifyForSlot(
+          freedDate,
+          freedTime,
+          appointment.staffId,
         );
 
         await this.conversationStateService.setState(from, 'MAIN_MENU');
@@ -1115,6 +1164,214 @@ Horario: ${appointmentTime}`,
           headerText: 'Reprogramar turno',
           footerText: 'Elegí una opción',
         },
+      );
+      return;
+    }
+
+    if (currentState?.state === 'JOINING_WAITLIST') {
+      const currentPayload =
+        currentState?.payload &&
+        typeof currentState.payload === 'object' &&
+        !Array.isArray(currentState.payload)
+          ? (currentState.payload as Record<string, any>)
+          : {};
+
+      if (text === 'waitlist_join') {
+        const customer = await this.customersService.findOrCreate(
+          from,
+          currentPayload.customerName as string,
+        );
+
+        await this.waitlistService.addToWaitlist(
+          customer.id,
+          currentPayload.serviceId as string,
+          currentPayload.staffId as string,
+          currentPayload.selectedDate as string,
+        );
+
+        await this.conversationStateService.setState(from, 'MAIN_MENU');
+
+        await this.sendMessageWithNavigationButtons(
+          from,
+          `✅ *Te anotamos en la lista de espera.*
+
+Te avisaremos por aquí si se libera un turno para el *${currentPayload.selectedDate as string}* con *${currentPayload.staffName as string}*.`,
+          'Lista de espera',
+        );
+        return;
+      }
+
+      if (text === 'waitlist_skip') {
+        await this.conversationStateService.setState(from, 'ASKING_DATE', {
+          serviceId: currentPayload.serviceId,
+          serviceName: currentPayload.serviceName,
+          staffId: currentPayload.staffId,
+          staffName: currentPayload.staffName,
+          customerName: currentPayload.customerName,
+        });
+
+        await this.whatsappService.sendText(
+          from,
+          `📆 Elegí otra fecha en formato *YYYY-MM-DD*.`,
+        );
+        return;
+      }
+
+      await this.whatsappService.sendReplyButtons(
+        from,
+        '¿Querés anotarte en la lista de espera o preferís elegir otra fecha?',
+        [
+          { id: 'waitlist_join', title: '🔔 Anotarme' },
+          { id: 'waitlist_skip', title: '📅 Otra fecha' },
+        ],
+        { headerText: 'Sin disponibilidad', footerText: 'Lista de espera' },
+      );
+      return;
+    }
+
+    if (currentState?.state === 'WAITLIST_OFFER') {
+      const currentPayload =
+        currentState?.payload &&
+        typeof currentState.payload === 'object' &&
+        !Array.isArray(currentState.payload)
+          ? (currentState.payload as Record<string, any>)
+          : {};
+
+      if (text === 'waitlist_confirm_yes') {
+        const offeredDate = currentPayload.offeredDate as string;
+        const offeredTime = currentPayload.offeredTime as string;
+        const staffId = currentPayload.staffId as string;
+        const serviceId = currentPayload.serviceId as string;
+        const waitlistId = currentPayload.waitlistId as string;
+
+        // Verificar que el slot sigue disponible
+        const startsAt = buildLocalDateTime(offeredDate, offeredTime);
+        const existing = await this.appointmentsService.findByStartsAtAndStaff(
+          startsAt,
+          staffId,
+        );
+
+        if (existing) {
+          await this.waitlistService.expireEntry(waitlistId);
+          await this.conversationStateService.setState(from, 'MAIN_MENU');
+          await this.sendMessageWithNavigationButtons(
+            from,
+            '😔 Lo sentimos, ese turno ya fue ocupado por otra persona. Podés intentar reservar otra fecha.',
+            'Turno ocupado',
+          );
+          return;
+        }
+
+        const customer = await this.customersService.findOrCreate(
+          from,
+          currentPayload.customerName as string,
+        );
+
+        await this.appointmentsService.createAppointment({
+          customerId: customer.id,
+          serviceId,
+          staffId,
+          startsAt,
+        });
+
+        await this.customersService.updateLastService(customer.id, serviceId, staffId);
+        await this.waitlistService.markBooked(waitlistId);
+        await this.conversationStateService.setState(from, 'BOOKING_CONFIRMED', currentPayload);
+
+        const config =
+          (await this.businessConfigService.getConfig()) ||
+          (await this.businessConfigService.createDefaultConfig());
+
+        await this.whatsappService.sendText(
+          from,
+          `✅ *¡Turno confirmado!*
+
+*Servicio:* ${currentPayload.serviceName as string}
+*Barbero:* ${currentPayload.staffName as string}
+*Fecha:* ${offeredDate}
+*Horario:* ${offeredTime}
+
+Gracias por reservar en *${config.businessName}* 💈`,
+        );
+        return;
+      }
+
+      if (text === 'waitlist_confirm_no') {
+        await this.waitlistService.expireEntry(currentPayload.waitlistId as string);
+        await this.conversationStateService.setState(from, 'MAIN_MENU');
+        await this.sendMainMenu(from);
+        return;
+      }
+
+      // Si no toca el botón, reenviar
+      await this.whatsappService.sendReplyButtons(
+        from,
+        `Hay un turno disponible para vos. ¿Querés reservarlo?`,
+        [
+          { id: 'waitlist_confirm_yes', title: '✅ Sí, reservar' },
+          { id: 'waitlist_confirm_no', title: '❌ No, gracias' },
+        ],
+        { headerText: '🔔 ¡Turno disponible!', footerText: 'Lista de espera' },
+      );
+      return;
+    }
+
+    if (currentState?.state === 'RATING_SERVICE') {
+      const currentPayload =
+        currentState?.payload &&
+        typeof currentState.payload === 'object' &&
+        !Array.isArray(currentState.payload)
+          ? (currentState.payload as Record<string, any>)
+          : {};
+
+      const ratingMap: Record<string, number> = {
+        rating_1: 1,
+        rating_2: 2,
+        rating_3: 3,
+        rating_4: 4,
+        rating_5: 5,
+      };
+
+      const rating = ratingMap[text];
+
+      if (!rating) {
+        await this.whatsappService.sendListMessage(
+          from,
+          'Por favor seleccioná una opción de la lista para calificar tu visita.',
+          'Calificar',
+          [
+            { id: 'rating_5', title: '⭐⭐⭐⭐⭐ Excelente', description: '' },
+            { id: 'rating_4', title: '⭐⭐⭐⭐ Muy bueno', description: '' },
+            { id: 'rating_3', title: '⭐⭐⭐ Regular', description: '' },
+            { id: 'rating_2', title: '⭐⭐ Malo', description: '' },
+            { id: 'rating_1', title: '⭐ Muy malo', description: '' },
+          ],
+          {
+            headerText: '¿Cómo te fue?',
+            footerText: 'Tu calificación es anónima',
+            sectionTitle: 'Puntuación',
+          },
+        );
+        return;
+      }
+
+      try {
+        await this.appointmentsService.saveRating(
+          currentPayload.appointmentId as string,
+          rating,
+        );
+      } catch {
+        // Si el turno ya no existe, igual agradecemos
+      }
+
+      await this.conversationStateService.setState(from, 'MAIN_MENU');
+
+      await this.whatsappService.sendText(
+        from,
+        `¡Gracias por tu calificación! 🙏
+
+Tu opinión nos ayuda a seguir mejorando.
+Si necesitás algo más, escribí *"hola"* para volver al menú.`,
       );
       return;
     }
