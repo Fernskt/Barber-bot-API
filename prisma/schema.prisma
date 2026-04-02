@@ -3,33 +3,59 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Customer {
-  id           String        @id @default(cuid())
-  phone        String        @unique
-  name         String?
-  createdAt    DateTime      @default(now())
-  appointments Appointment[]
+  id              String        @id @default(cuid())
+  phone           String        @unique
+  name            String?
+  notes           String?
+  lastServiceId   String?
+  lastStaffId     String?
+  createdAt       DateTime      @default(now())
+  appointments    Appointment[]
+  waitlistEntries Waitlist[]
+  lastService     Service?      @relation("CustomerLastService", fields: [lastServiceId], references: [id])
+  lastStaff       Staff?        @relation("CustomerLastStaff", fields: [lastStaffId], references: [id])
 }
 
 model Service {
-  id              String        @id @default(cuid())
-  name            String
-  durationMinutes Int
-  price           Float
-  createdAt       DateTime      @default(now())
-  appointments    Appointment[]
+  id                   String        @id @default(cuid())
+  name                 String
+  durationMinutes      Int
+  price                Float
+  createdAt            DateTime      @default(now())
+  appointments         Appointment[]
+  waitlistEntries      Waitlist[]
+  customersLastService Customer[]    @relation("CustomerLastService")
 }
 
 model Staff {
-  id           String        @id @default(cuid())
-  name         String
-  active       Boolean       @default(true)
-  createdAt    DateTime      @default(now())
-  appointments Appointment[]
+  id                 String              @id @default(cuid())
+  name               String
+  active             Boolean             @default(true)
+  createdAt          DateTime            @default(now())
+  appointments       Appointment[]
+  waitlistEntries    Waitlist[]
+  customersLastStaff Customer[]          @relation("CustomerLastStaff")
+  availability       StaffAvailability[]
+}
+
+model StaffAvailability {
+  id          String   @id @default(cuid())
+  staffId     String
+  dayOfWeek   Int      // 0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb
+  isAvailable Boolean  @default(true)
+  startTime   String?  // "09:00"
+  endTime     String?  // "18:00"
+  createdAt   DateTime @default(now())
+
+  staff       Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, dayOfWeek])
 }
 
 model Appointment {
@@ -42,6 +68,8 @@ model Appointment {
   createdAt             DateTime @default(now())
   reminder24hSentAt     DateTime?
   reminder2hSentAt      DateTime?
+  feedbackSentAt        DateTime?
+  rating                Int?
 
   customer              Customer @relation(fields: [customerId], references: [id])
   service               Service  @relation(fields: [serviceId], references: [id])
@@ -68,4 +96,21 @@ model BusinessConfig {
   bookingSlots      Json?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model Waitlist {
+  id            String    @id @default(cuid())
+  customerId    String
+  serviceId     String
+  staffId       String?
+  requestedDate String    // "YYYY-MM-DD"
+  status        String    @default("WAITING") // WAITING | NOTIFIED | BOOKED | EXPIRED
+  offeredDate   String?   // fecha ofrecida al notificar
+  offeredTime   String?   // "HH:MM" ofrecido al notificar
+  notifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  service       Service   @relation(fields: [serviceId], references: [id])
+  staff         Staff?    @relation(fields: [staffId], references: [id])
 }

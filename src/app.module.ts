@@ -11,6 +11,7 @@ import { StaffModule } from './staff/staff.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { RemindersModule } from './reminders/reminders.module';
 import { BusinessConfigModule } from './business-config/business-config.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { BusinessConfigModule } from './business-config/business-config.module';
     StaffModule,
     RemindersModule,
     BusinessConfigModule,
+    WaitlistModule,
   ],
   controllers: [WhatsAppController],
 })

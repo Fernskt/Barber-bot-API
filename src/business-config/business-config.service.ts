@@ -10,6 +10,10 @@ export class BusinessConfigService {
     return this.prisma.businessConfig.findFirst();
   }
 
+  async ensureDefaults() {
+    return (await this.getConfig()) || this.createDefaultConfig();
+  }
+
   async createDefaultConfig() {
     const existing = await this.getConfig();
 
@@ -44,7 +48,11 @@ export class BusinessConfigService {
   }
 
   normalizeOpeningHours(openingHours: unknown): Record<string, string> {
-    if (!openingHours || typeof openingHours !== 'object' || Array.isArray(openingHours)) {
+    if (
+      !openingHours ||
+      typeof openingHours !== 'object' ||
+      Array.isArray(openingHours)
+    ) {
       return {};
     }
 
@@ -69,7 +77,11 @@ export class BusinessConfigService {
   }
 
   normalizeBookingSlots(bookingSlots: unknown): Record<string, string[]> {
-    if (!bookingSlots || typeof bookingSlots !== 'object' || Array.isArray(bookingSlots)) {
+    if (
+      !bookingSlots ||
+      typeof bookingSlots !== 'object' ||
+      Array.isArray(bookingSlots)
+    ) {
       return {};
     }
 
@@ -83,5 +95,23 @@ export class BusinessConfigService {
     }
 
     return ordered;
+  }
+
+  async updateConfig(data: Partial<any>) {
+    const config = await this.getConfig();
+
+    if (!config) {
+      const created = await this.createDefaultConfig();
+
+      return this.prisma.businessConfig.update({
+        where: { id: created.id },
+        data,
+      });
+    }
+
+    return this.prisma.businessConfig.update({
+      where: { id: config.id },
+      data,
+    });
   }
 }
