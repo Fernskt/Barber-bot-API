@@ -12,11 +12,13 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { RemindersModule } from './reminders/reminders.module';
 import { BusinessConfigModule } from './business-config/business-config.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     PrismaModule,
+    AuthModule,
     WhatsAppModule,
     BotModule,
     ServicesModule,
