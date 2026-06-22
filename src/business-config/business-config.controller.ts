@@ -1,7 +1,9 @@
-import { Controller, Get, Patch, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { BusinessConfigService } from './business-config.service';
 import { UpdateBusinessConfigDto } from './dto/update-business-config.dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('business-config')
 export class BusinessConfigController {
   constructor(private readonly service: BusinessConfigService) {}

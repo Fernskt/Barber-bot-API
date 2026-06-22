@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/hasperue.fernando/OneDrive - OCA/Escritorio/proyectos/Barber bot API/**)",
+      "Read(//c/Users/hasperue.fernando/OneDrive - OCA/Escritorio/proyectos/Barber bot API/frontend/**)",
+      "Bash(git stash *)",
+      "Bash(npx jest *)",
+      "Bash(echo \"PID: $!\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/appointments)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/customers)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/staff)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/services)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/business-config)",
+      "Bash(kill 793)",
+      "Bash(pkill -f \"nest start\")"
+    ]
+  }
+}

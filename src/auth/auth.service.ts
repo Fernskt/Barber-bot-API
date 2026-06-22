@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -17,6 +18,14 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
+    const userCount = await this.prisma.user.count();
+
+    if (userCount > 0) {
+      throw new ForbiddenException(
+        'El registro está deshabilitado. Pedile a un administrador existente que te cree la cuenta.',
+      );
+    }
+
     const exists = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
